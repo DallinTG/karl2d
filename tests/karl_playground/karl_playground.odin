@@ -62,26 +62,15 @@ step :: proc() -> bool {
 		rot += k2.get_frame_time() * 5
 	}
 	
-	{//demonstrating the ability to easily have and change a key bind between keyboard mouse and gamepad
-		if k2.get_button_state(.Left_Shift).went_down {
-			key_bind=.Minus
-		}
-		if k2.get_button_state(.Left_Control).went_down {
-			key_bind=.Equal
-		}
-		if k2.get_button_state(.Right_Control).went_down {
-			key_bind=.Left_Trigger
-		}
-		if k2.get_button_state(.Space).went_down {
-			key_bind=k2.Mouse_Button.Right // this requires the full name because there is a left key and left mouse button
-		}
-		
-		//Draws a blue rec if specified key_bind is pressed
-		if k2.get_button_state(key_bind).is_held {
-			k2.draw_rect({180,10,50,50},k2.BLUE)
-		}
+	z_index:f32 = .5
+	if k2.key_is_held(.Space) {
+		z_index= -.5
 	}
+	k2.draw_texture_ex(tex, {0, 0, f32(tex.width), f32(tex.height)}, {500, 650, 900/2, 500/2}, {450, 250}, rot,z=z_index)
+	k2.draw_text("waffles", {10, 396}, 48, k2.LIGHT_PURPLE,z_index)
+	
 
+	k2.draw_rect({180,10,500,500},k2.BLUE, z=z_index)
 	k2.draw_texture_ex(tex, {0, 0, f32(tex.width), f32(tex.height)}, {400, 450, 900, 500}, {450, 250}, rot)
 
 	k2.draw_rect({pos_x + 10, 10, 60, 60}, k2.GREEN)
@@ -98,7 +87,10 @@ step :: proc() -> bool {
 	k2.draw_text(msg1, {10, 148}, 48, k2.ORANGE)
 	k2.draw_text(msg2, {10, 196}, 48, k2.LIGHT_PURPLE)
 
+	k2.draw_text("waffles 2", {10, 496}, 48, k2.LIGHT_PURPLE,z_index)
 	k2.present()
+	
+	
 	free_all(context.temp_allocator)
 
 	return true

@@ -582,7 +582,7 @@ get_button_state :: proc(button_event: Button_Event, gamepad: Gamepad_Index = 0)
 
 // Draw a colored rectangle. The rectangles have their (x, y) position in the top-left corner of the
 // rectangle.
-draw_rect :: proc(r: Rect, c: Color) {
+draw_rect :: proc(r: Rect, c: Color, z:f32 = 0) {
 	if s.vertex_buffer_cpu_used + s.batch_shader.vertex_size * 6 > len(s.vertex_buffer_cpu) {
 		draw_current_batch()
 	}
@@ -593,7 +593,7 @@ draw_rect :: proc(r: Rect, c: Color) {
 
 	s.batch_texture = s.shape_drawing_texture
 
-	z := get_next_depth()
+	z := get_next_depth() + z
 
 	batch_vertex({r.x, r.y, z}, {0, 0}, c)
 	batch_vertex({r.x + r.w, r.y, z}, {1, 0}, c)
@@ -604,8 +604,8 @@ draw_rect :: proc(r: Rect, c: Color) {
 }
 
 // Creates a rectangle from a position and a size and draws it.
-draw_rect_vec :: proc(pos: Vec2, size: Vec2, c: Color) {
-	draw_rect({pos.x, pos.y, size.x, size.y}, c)
+draw_rect_vec :: proc(pos: Vec2, size: Vec2, c: Color,  z:f32 = 0) {
+	draw_rect({pos.x, pos.y, size.x, size.y}, c, z = z)
 }
 
 // Draw a rectangle with a custom origin and rotation.
@@ -615,7 +615,7 @@ draw_rect_vec :: proc(pos: Vec2, size: Vec2, c: Color) {
 // then the rectangle rotates around its center.
 //
 // Rotation unit: Radians.
-draw_rect_ex :: proc(r: Rect, origin: Vec2, rot: f32, c: Color) {
+draw_rect_ex :: proc(r: Rect, origin: Vec2, rot: f32, c: Color,  z:f32 = 0) {
 	if s.vertex_buffer_cpu_used + s.batch_shader.vertex_size * 6 > len(s.vertex_buffer_cpu) {
 		draw_current_batch()
 	}
@@ -664,7 +664,7 @@ draw_rect_ex :: proc(r: Rect, origin: Vec2, rot: f32, c: Color) {
 		}
 	}
 
-	z := get_next_depth()
+	z := get_next_depth()+z
 	
 	batch_vertex(vec3(tl, z), {0, 0}, c)
 	batch_vertex(vec3(tr, z), {1, 0}, c)
@@ -676,7 +676,7 @@ draw_rect_ex :: proc(r: Rect, origin: Vec2, rot: f32, c: Color) {
 
 // Draw the outline of a rectangle with a specific thickness. The outline is drawn using four
 // rectangles.
-draw_rect_outline :: proc(r: Rect, thickness: f32, color: Color) {
+draw_rect_outline :: proc(r: Rect, thickness: f32, color: Color,  z:f32 = 0) {
 	t := thickness
 	
 	// Based on DrawRectangleLinesEx from Raylib
@@ -709,15 +709,15 @@ draw_rect_outline :: proc(r: Rect, thickness: f32, color: Color) {
 		r.h - t * 2,
 	}
 
-	draw_rect(top, color)
-	draw_rect(bottom, color)
-	draw_rect(left, color)
-	draw_rect(right, color)
+	draw_rect(top, color, z = 0)
+	draw_rect(bottom, color, z = 0)
+	draw_rect(left, color, z = 0)
+	draw_rect(right, color, z = 0)
 }
 
 // Draw a circle with a certain center and radius. Note the `segments` parameter: This circle is not
 // perfect! It is drawn using a number of "cake segments".
-draw_circle :: proc(center: Vec2, radius: f32, color: Color, segments := 16) {
+draw_circle :: proc(center: Vec2, radius: f32, color: Color, segments := 16, z:f32 = 0) {
 	if s.vertex_buffer_cpu_used + s.batch_shader.vertex_size * 3 * segments > len(s.vertex_buffer_cpu) {
 		draw_current_batch()
 	}
@@ -728,7 +728,7 @@ draw_circle :: proc(center: Vec2, radius: f32, color: Color, segments := 16) {
 
 	s.batch_texture = s.shape_drawing_texture
 
-	z := get_next_depth()
+	z := get_next_depth() + z
 
 	prev := center + {radius, 0}
 	for s in 1..=segments {
@@ -745,19 +745,19 @@ draw_circle :: proc(center: Vec2, radius: f32, color: Color, segments := 16) {
 }
 
 // Like `draw_circle` but only draws the outer edge of the circle.
-draw_circle_outline :: proc(center: Vec2, radius: f32, thickness: f32, color: Color, segments := 16) {
+draw_circle_outline :: proc(center: Vec2, radius: f32, thickness: f32, color: Color, segments := 16, z:f32 = 0) {
 	prev := center + {radius, 0}
 	for s in 1..=segments {
 		sr := (f32(s)/f32(segments)) * 2*math.PI
 		rot := linalg.matrix2_rotate(sr)
 		p := center + rot * Vec2{radius, 0}
-		draw_line(prev, p, thickness, color)
+		draw_line(prev, p, thickness, color, z = z)
 		prev = p
 	}
 }
 
 // Draws a line from `start` to `end` of a certain thickness.
-draw_line :: proc(start: Vec2, end: Vec2, thickness: f32, color: Color) {
+draw_line :: proc(start: Vec2, end: Vec2, thickness: f32, color: Color, z:f32 = 0) {
 	p := Vec2{start.x, start.y}
 	s := Vec2{linalg.length(end - start), thickness}
 
@@ -766,14 +766,14 @@ draw_line :: proc(start: Vec2, end: Vec2, thickness: f32, color: Color) {
 
 	rot := math.atan2(end.y - start.y, end.x - start.x)
 
-	draw_rect_ex(r, origin, rot, color)
+	draw_rect_ex(r, origin, rot, color, z = z)
 }
 
 // Draw a texture at a specific position. The texture will be drawn with its top-left corner at
 // position `pos`.
 //
 // Load textures using `load_texture_from_file` or `load_texture_from_bytes`.
-draw_texture :: proc(tex: Texture, pos: Vec2, tint := WHITE) {
+draw_texture :: proc(tex: Texture, pos: Vec2, tint := WHITE, z:f32 = 0) {
 	draw_texture_ex(
 		tex,
 		{0, 0, f32(tex.width), f32(tex.height)},
@@ -781,13 +781,14 @@ draw_texture :: proc(tex: Texture, pos: Vec2, tint := WHITE) {
 		{},
 		0,
 		tint,
+		z = z,
 	)
 }
 
 // Draw a section of a texture at a specific position. `rect` is a rectangle measured in pixels. It
 // tells the procedure which part of the texture to display. The texture will be drawn with its
 // top-left corner at position `pos`.
-draw_texture_rect :: proc(tex: Texture, rect: Rect, pos: Vec2, tint := WHITE) {
+draw_texture_rect :: proc(tex: Texture, rect: Rect, pos: Vec2, tint := WHITE, z:f32 = 0) {
 	draw_texture_ex(
 		tex,
 		rect,
@@ -795,6 +796,7 @@ draw_texture_rect :: proc(tex: Texture, rect: Rect, pos: Vec2, tint := WHITE) {
 		{},
 		0,
 		tint,
+		z = z,
 	)
 }
 
@@ -805,7 +807,7 @@ draw_texture_rect :: proc(tex: Texture, rect: Rect, pos: Vec2, tint := WHITE) {
 // Tip: Use `k2.get_texture_rect(tex)` for `src` if you want to draw the whole texture.
 //
 // Rotation unit: Radians.
-draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotation: f32, tint := WHITE) {
+draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotation: f32, tint := WHITE, z:f32 = 0) {
 	if tex.width == 0 || tex.height == 0 {
 		return
 	}
@@ -920,7 +922,7 @@ draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotati
 		uv5.y -= us.y		
 	}
 
-	z := get_next_depth()
+	z := get_next_depth() + z
 
 	batch_vertex(vec3(tl, z), uv0, c)
 	batch_vertex(vec3(tr, z), uv1, c)
@@ -951,13 +953,13 @@ measure_text_ex :: proc(font_handle: Font, text: string, font_size: f32) -> Vec2
 
 // Draw text at a position with a size. This uses the default font. `pos` will be equal to the 
 // top-left position of the text.
-draw_text :: proc(text: string, pos: Vec2, font_size: f32, color := BLACK) {
-	draw_text_ex(s.default_font, text, pos, font_size, color)
+draw_text :: proc(text: string, pos: Vec2, font_size: f32, color := BLACK, z:f32 = 0) {
+	draw_text_ex(s.default_font, text, pos, font_size, color, z = z)
 }
 
 // Draw text at a position with a size, using a custom font. `pos` will be equal to the  top-left
 // position of the text.
-draw_text_ex :: proc(font_handle: Font, text: string, pos: Vec2, font_size: f32, color := BLACK) {
+draw_text_ex :: proc(font_handle: Font, text: string, pos: Vec2, font_size: f32, color := BLACK, z:f32 = 0) {
 	if int(font_handle) >= len(s.fonts) {
 		return
 	}
@@ -999,7 +1001,7 @@ draw_text_ex :: proc(font_handle: Font, text: string, pos: Vec2, font_size: f32,
 			q.x1 - q.x0, q.y1 - q.y0,
 		}
 
-		draw_texture_ex(font.atlas, src, dst, {}, 0, color)
+		draw_texture_ex(font.atlas, src, dst, {}, 0, color, z = z)
 	}
 }
 
