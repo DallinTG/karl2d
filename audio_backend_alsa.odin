@@ -20,14 +20,19 @@ import alsa "platform_bindings/linux/alsa"
 import "core:thread"
 import "core:time"
 import "core:sync"
-import vmem "core:mem/virtual"
-import "core:slice"
 
 Alsa_State :: struct {
 	pcm: alsa.PCM,
-	samples: [dynamic]Audio_Sample,
-	samples_mutex: sync.Mutex,
-	samples_remaining: int,
+
+	// This is a "circular" buffer. We write new things at `buf_end` and read from `buf_start`.
+	// AUDIO_MIX_CHUNK_SIZE * 3 should be enough, but I added some head room. 3 should be enough
+	// because the mixer tends to not never produce more than 2.5 * AUDIO_MIX_CHUNK_SIZE samples
+	// (it throws in another chunk if the remaining number of samples is less than
+	// 1.5 * AUDIO_MIX_CHUNK_SIZE).
+	buf: [AUDIO_MIX_CHUNK_SIZE*5]Audio_Sample,
+	buf_start: int,
+	buf_end: int,
+
 	feed_thread: ^thread.Thread,
 	run_thread: bool,
 }
@@ -84,49 +89,53 @@ alsa_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 }
 
 alsa_thread_proc :: proc(t: ^thread.Thread) {
-	arena: vmem.Arena
-	arena_alloc := vmem.arena_allocator(&arena)
-
 	for s.run_thread {
 		time.sleep(5 * time.Millisecond)
-		sync.lock(&s.samples_mutex)
-		remaining := slice.clone(s.samples[:], arena_alloc)
-		sync.atomic_sub(&s.samples_remaining, len(s.samples))
-		runtime.clear(&s.samples)
-		sync.unlock(&s.samples_mutex)
+		start, end := sync.atomic_load(&s.buf_start), sync.atomic_load(&s.buf_end)
 
-		for len(remaining) > 0 {
-			// Note that this blocks. But this runs on a thread so that's fine.
-			ret := alsa.pcm_writei(s.pcm, raw_data(remaining), c.ulong(len(remaining)))
+		write :: proc(pcm: alsa.PCM, data: []Audio_Sample) {
+			remaining := data
 
-			if ret < 0 {
-				// Recover from errors. One possible error is an underrun. I.e. ALSA ran out of bytes.
-				// In that case we must recover the PCM device and then try feeding it data again.
-				recover_ret := alsa.pcm_recover(s.pcm, c.int(ret), 1)
+			for len(remaining) > 0 {
+				ret := alsa.pcm_writei(pcm, raw_data(remaining), c.ulong(len(remaining)))
 
-				// Can't recover!
-				if recover_ret < 0 {
-					break
+				if ret < 0 {
+					// Recover from errors. One possible error is an underrun. I.e. ALSA ran out of bytes.
+					// In that case we must recover the PCM device and then try feeding it data again.
+					recover_ret := alsa.pcm_recover(s.pcm, c.int(ret), 1)
+
+					// Can't recover!
+					if recover_ret < 0 {
+						log.errorf("Fatal sound error:pcm_writei failed and recovery also failed: %s", alsa.strerror(c.int(ret)))
+						s.run_thread = false
+						return
+					}
+
+					continue
 				}
 
-				continue
+				remaining = remaining[ret:]
 			}
-
-			written := int(ret)
-			remaining = remaining[written:]
 		}
 
-		free_all(arena_alloc)
-	}
+		if start > end {
+			write(s.pcm, s.buf[start:])
+			write(s.pcm, s.buf[:end])
+		} else {
+			write(s.pcm, s.buf[start:end])
+		}
 
-	vmem.arena_destroy(&arena)
+		sync.atomic_store(&s.buf_start, end)
+	}
 }
 
 alsa_shutdown :: proc() {
+	log.debug("Shutdown audio backend alsa")
+
 	s.run_thread = false
 	thread.join(s.feed_thread)
+	thread.destroy(s.feed_thread)
 
-	log.debug("Shutdown audio backend alsa")
 	if s.pcm != nil {
 		alsa.pcm_close(s.pcm)
 		s.pcm = nil
@@ -142,16 +151,32 @@ alsa_feed :: proc(samples: []Audio_Sample) {
 	if s.pcm == nil || len(samples) == 0 {
 		return
 	}
-	
-	sync.lock(&s.samples_mutex)
-	append(&s.samples, ..samples)
-	sync.atomic_add(&s.samples_remaining, len(samples))
-	sync.unlock(&s.samples_mutex)
+
+	samples := samples
+	i := sync.atomic_load(&s.buf_end)
+	overflow := (i + len(samples)) - len(s.buf)
+
+	if overflow > 0 {
+		to_copy := len(samples) - overflow
+		copy(s.buf[i:], samples[:to_copy])
+		i = 0
+		samples = samples[to_copy:]
+	}
+
+	copy(s.buf[i:], samples[:])
+	sync.atomic_store(&s.buf_end, i + len(samples))
 }
 
 alsa_remaining_samples :: proc() -> int {
 	if s.pcm == nil {
 		return 0
 	}
-	return sync.atomic_load(&s.samples_remaining)
+
+	start, end := sync.atomic_load(&s.buf_start), sync.atomic_load(&s.buf_end)
+
+	if end >= start {
+		return end - start
+	} 
+	
+	return len(s.buf) - start + end
 }
